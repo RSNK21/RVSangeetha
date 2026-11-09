@@ -1,0 +1,53 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: ["hoplite/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest fastapi "uvicorn[standard]" python-multipart httpx
+
+      - name: Run DSP and web tests
+        run: python -m pytest tests/ -q
+
+      - name: Build RVSangeetha.exe
+        run: |
+          pyinstaller --noconfirm --windowed --name RVSangeetha `
+            --paths . `
+            --collect-all pyqtgraph `
+            --collect-binaries soundfile `
+            --collect-binaries sounddevice `
+            launcher.py
+
+      - name: Zip distribution
+        run: Compress-Archive -Path dist/RVSangeetha -DestinationPath RVSangeetha-windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RVSangeetha-windows
+          path: RVSangeetha-windows.zip
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RVSangeetha-windows.zip
+          prerelease: false

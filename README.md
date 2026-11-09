@@ -73,8 +73,45 @@ To build a standalone `RVSangeetha.exe`:
 build_windows.bat        :: output in dist\RVSangeetha\
 ```
 
+A pre-built `RVSangeetha-windows.zip` is also produced by the
+[Build Windows exe](../../actions/workflows/build-windows.yml) GitHub
+Actions workflow on every push (download from the run's **Artifacts**) and
+attached to releases on `v*` tags.
+
 (The code is pure Python/Qt and also runs on Linux/macOS:
 `python -m rvsangeetha`.)
+
+## Web app (any OS, any browser)
+
+**Easiest: just open <https://rsnk21.github.io/RVSangeetha/>** — the whole
+app runs inside your browser via Python-in-WebAssembly (Pyodide). Nothing
+to install, and your audio never leaves your machine. The first visit
+downloads the Python runtime (~15 MB, then cached). FLAC export is not
+available in this mode; use WAV 16/24.
+
+The same page can also be served by a small FastAPI backend, which does the
+processing server-side (faster on weak devices, adds FLAC export):
+
+```bash
+pip install -r requirements.txt
+uvicorn rvsangeetha.web.server:app --host 0.0.0.0 --port 8080
+# open http://localhost:8080
+```
+
+Or with Docker (no Python needed):
+
+```bash
+docker build -t rvsangeetha .
+docker run -p 8080:8080 rvsangeetha
+```
+
+![web app](docs/screenshot_web.png)
+
+Sessions are held in memory (up to 16, 4 h TTL); nothing is stored
+permanently. The browser UI offers waveform drag-selection, all restoration
+effects with manual sliders, noise-profile capture,
+cut/trim/silence/split with undo, playback, and WAV/segment-zip export.
+
 
 ## Suggested workflow
 
