@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RVSangeetha — Cassette Restoration for Carnatic Veena</title>
+<style>
+:root {
+  --bg:#14161c; --panel:#1b1e26; --line:#2d3342; --txt:#d8dce6;
+  --dim:#9aa3b5; --acc:#69aaff; --warn:#ffc850; --ok:#5aff8c;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--txt);
+  font:14px/1.45 "Segoe UI",system-ui,sans-serif; }
+header { display:flex; align-items:baseline; gap:14px; padding:10px 16px;
+  background:var(--panel); border-bottom:1px solid var(--line); }
+header h1 { font-size:18px; margin:0; color:var(--acc); }
+header .sub { color:var(--dim); font-size:12px; }
+main { padding:12px 16px; max-width:1280px; margin:0 auto; }
+#drop { border:2px dashed var(--line); border-radius:8px; padding:46px 20px;
+  text-align:center; color:var(--dim); cursor:pointer; margin:24px 0; }
+#drop.hover { border-color:var(--acc); color:var(--txt); }
+#editor { display:none; }
+#wavebox { position:relative; background:#0e1014; border:1px solid var(--line);
+  border-radius:6px; }
+#wave { display:block; width:100%; height:240px; cursor:text; }
+#status { color:var(--dim); font-size:12px; padding:6px 2px; min-height:18px; }
+.bar { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; align-items:center; }
+button { background:var(--line); color:var(--txt); border:none;
+  border-radius:4px; padding:7px 13px; cursor:pointer; font-size:13px; }
+button:hover { background:#3a4156; }
+button.primary { background:#2a5aa0; } button.primary:hover { background:#336dc2; }
+button:disabled { opacity:.4; cursor:default; }
+.group { color:var(--dim); font-size:11px; text-transform:uppercase;
+  letter-spacing:.08em; margin-right:2px; }
+#panels { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:10px; margin-top:12px; }
+.panel { background:var(--panel); border:1px solid var(--line);
+  border-radius:6px; padding:10px 12px; }
+.panel h3 { margin:0 0 4px; font-size:13px; color:var(--acc); }
+.panel p.hint { margin:0 0 8px; font-size:11px; color:var(--dim); }
+.row { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }
+.row label { flex:0 0 118px; color:var(--dim); }
+.row input[type=range] { flex:1; min-width:0; accent-color:var(--acc); }
+.row output { flex:0 0 60px; text-align:right; font-size:11px;
+  white-space:nowrap; font-variant-numeric:tabular-nums; }
+#busy { position:fixed; inset:0; background:rgba(10,12,16,.7); display:none;
+  align-items:center; justify-content:center; z-index:9; }
+#busy div { background:var(--panel); border:1px solid var(--line);
+  padding:22px 34px; border-radius:8px; font-size:15px; }
+.badge { font-size:11px; color:var(--ok); }
+footer { color:var(--dim); font-size:11px; text-align:center; padding:18px; }
+a { color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>RVSangeetha</h1>
+  <span class="sub">cassette restoration &amp; remastering · voiced for the Saraswati veena</span>
+</header>
+<main>
+  <div id="drop">Drop a cassette transfer here, or click to choose a file
+    <br><small>WAV · FLAC · OGG · MP3 — processed on the server, nothing stored permanently</small>
+    <input id="file" type="file" accept="audio/*,.wav,.flac,.ogg,.mp3,.aiff" hidden>
+  </div>
+
+  <div id="editor">
+    <div id="wavebox"><canvas id="wave"></canvas></div>
+    <div id="status"></div>
+
+    <div class="bar">
+      <span class="group">Transport</span>
+      <button id="play" class="primary">▶ Play</button>
+      <button id="stop">■ Stop</button>
+      <span class="group">Edit</span>
+      <button id="undo">↶ Undo</button>
+      <button id="redo">↷ Redo</button>
+      <button id="cut">Cut</button>
+      <button id="copy">Copy</button>
+      <button id="paste">Paste</button>
+      <button id="del">Delete</button>
+      <button id="trim">Trim</button>
+      <button id="silence">Silence</button>
+      <span class="group">Split</span>
+      <button id="split">Split at cursor</button>
+      <button id="clearsplits">Clear</button>
+      <span class="group">Export</span>
+      <button id="exp16">WAV 16</button>
+      <button id="exp24">WAV 24</button>
+      <button id="expflac">FLAC</button>
+      <button id="expseg">Segments (zip)</button>
+    </div>
+
+    <div id="panels">
+      <div class="panel">
+        <h3>✦ One-Click Remaster</h3>
+        <p class="hint">Veena preset: declick → declip → 50 Hz hum comb →
+          hiss gate (long release, protects string decay and gamakas) →
+          brilliance/presence EQ → normalize + soft limiter.</p>
+        <div class="row"><label>Hiss reduction</label>
+          <input type="range" id="rm_nr" min="3" max="30" step="0.5" value="12">
+          <output for="rm_nr">12 dB</output></div>
+        <div class="row"><label>Mains freq</label>
+          <input type="range" id="rm_hum" min="40" max="70" step="10" value="50">
+          <output for="rm_hum">50 Hz</output></div>
+        <div class="row"><label>Brilliance</label>
+          <input type="range" id="rm_shelf" min="-6" max="9" step="0.5" value="2.5">
+          <output for="rm_shelf">2.5 dB</output></div>
+        <button id="remaster" class="primary">✦ Remaster whole recording</button>
+      </div>
+
+      <div class="panel">
+        <h3>Noise Reduction (Tape Hiss)</h3>
+        <p class="hint">Select pure hiss (lead-in / gap between items) and
+          capture a profile first; otherwise the quietest passage is profiled
+          automatically. <span id="profbadge" class="badge"></span></p>
+        <div class="row"><label>Reduction</label>
+          <input type="range" id="nr_red" min="3" max="30" step="0.5" value="12">
+          <output for="nr_red">12 dB</output></div>
+        <div class="row"><label>Sensitivity</label>
+          <input type="range" id="nr_sens" min="0" max="18" step="0.5" value="6">
+          <output for="nr_sens">6 dB</output></div>
+        <div class="row"><label>Release</label>
+          <input type="range" id="nr_rel" min="20" max="500" step="10" value="150">
+          <output for="nr_rel">150 ms</output></div>
+        <button id="profile">Capture profile from selection</button>
+        <button id="nr" class="primary">Reduce hiss</button>
+      </div>
+
+      <div class="panel">
+        <h3>Hum Removal</h3>
+        <p class="hint">Zero-phase notch comb. 50 Hz for Indian mains;
+          high Q spares the veena's low register.</p>
+        <div class="row"><label>Fundamental</label>
+          <input type="range" id="hum_f" min="40" max="70" step="10" value="50">
+          <output for="hum_f">50 Hz</output></div>
+        <div class="row"><label>Harmonics</label>
+          <input type="range" id="hum_h" min="1" max="16" step="1" value="8">
+          <output for="hum_h">8</output></div>
+        <div class="row"><label>Q</label>
+          <input type="range" id="hum_q" min="10" max="80" step="1" value="35">
+          <output for="hum_q">35</output></div>
+        <button id="hum" class="primary">Remove hum</button>
+      </div>
+
+      <div class="panel">
+        <h3>Click / Dropout / Declip</h3>
+        <p class="hint">Statistical detection — mridangam and khanjira
+          strokes are never flagged. Select just the damaged spot for
+          surgical repair.</p>
+        <div class="row"><label>Click threshold</label>
+          <input type="range" id="dc_th" min="6" max="30" step="0.5" value="14">
+          <output for="dc_th">14 MADs</output></div>
+        <div class="row"><label>Clip ceiling</label>
+          <input type="range" id="cl_th" min="0.80" max="1.00" step="0.01" value="0.95">
+          <output for="cl_th">0.95×</output></div>
+        <button id="declick" class="primary">Repair clicks</button>
+        <button id="declip">Declip</button>
+      </div>
+
+      <div class="panel">
+        <h3>Tape Tone EQ</h3>
+        <p class="hint">Restore treble dulled by tape self-erasure;
+          presence lift flatters both veena attack and voice.</p>
+        <div class="row"><label>Rumble HP</label>
+          <input type="range" id="eq_hp" min="15" max="120" step="5" value="30">
+          <output for="eq_hp">30 Hz</output></div>
+        <div class="row"><label>Shelf 7.5k</label>
+          <input type="range" id="eq_sh" min="-6" max="9" step="0.5" value="2.5">
+          <output for="eq_sh">2.5 dB</output></div>
+        <div class="row"><label>Presence 3.2k</label>
+          <input type="range" id="eq_pr" min="-6" max="6" step="0.5" value="1.5">
+          <output for="eq_pr">1.5 dB</output></div>
+        <button id="eq" class="primary">Apply EQ</button>
+      </div>
+
+      <div class="panel">
+        <h3>Level</h3>
+        <div class="row"><label>Normalize to</label>
+          <input type="range" id="lv_norm" min="-12" max="0" step="0.5" value="-1">
+          <output for="lv_norm">-1 dBFS</output></div>
+        <div class="row"><label>Amplify</label>
+          <input type="range" id="lv_gain" min="-24" max="24" step="0.5" value="0">
+          <output for="lv_gain">0 dB</output></div>
+        <div class="row"><label>Fade in/out</label>
+          <input type="range" id="lv_fade" min="0" max="10" step="0.5" value="0">
+          <output for="lv_fade">0 s</output></div>
+        <button id="normalize" class="primary">Normalize</button>
+        <button id="gain">Amplify</button>
+        <button id="fade">Fade</button>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="busy"><div id="busytext">Processing…</div></div>
+<footer>RVSangeetha — spectral restoration for cassette-era Carnatic
+recordings. Selections apply effects locally; no selection = whole
+recording.</footer>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let sid = null, info = null, peaks = null;
+let selStart = null, selEnd = null, cursor = 0;   // in frames
+let audio = null, playStartFrame = 0, playT0 = 0;
+
+// ---- slider outputs -------------------------------------------------
+document.querySelectorAll('input[type=range]').forEach(r => {
+  const out = document.querySelector(`output[for=${r.id}]`);
+  if (!out) return;
+  const unit = out.textContent.replace(/^-?[\d.]+\s*/, '');
+  const upd = () => out.textContent = r.value + (unit ? ' ' + unit : '');
+  r.addEventListener('input', upd); upd();
+});
+const val = id => parseFloat($(id).value);
+
+// ---- api ------------------------------------------------------------
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+function busy(on, text) {
+  $('busytext').textContent = text || 'Processing…';
+  $('busy').style.display = on ? 'flex' : 'none';
+}
+async function refresh() {
+  info = await api(`/api/${sid}/info`);
+  peaks = await api(`/api/${sid}/peaks?cols=${Math.min(4000, $('wave').clientWidth * 2)}`);
+  draw(); setStatus();
+  $('profbadge').textContent = info.has_profile ? '✓ profile captured' : '';
+  $('undo').disabled = !info.can_undo;
+  $('redo').disabled = !info.can_redo;
+}
+function setStatus(extra) {
+  if (!info) return;
+  const p = [];
+  p.push(info.name);
+  p.push(`${info.samplerate} Hz · ${info.channels} ch · ${info.duration.toFixed(1)} s`);
+  if (info.peak_db !== null) p.push(`peak ${info.peak_db} dBFS`);
+  if (selStart !== null) p.push(`selection ${(selStart/info.samplerate).toFixed(2)}–${(selEnd/info.samplerate).toFixed(2)} s`);
+  if (info.markers.length) p.push(`${info.markers.length} split(s)`);
+  if (extra) p.push(extra);
+  $('status').textContent = p.join('   |   ');
+}
+
+// ---- waveform -------------------------------------------------------
+function draw(playFrame) {
+  const cv = $('wave'), ctx = cv.getContext('2d');
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * devicePixelRatio) {
+    cv.width = w * devicePixelRatio; cv.height = h * devicePixelRatio;
+  }
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!peaks) return;
+  const n = peaks.mins.length, mid = h / 2;
+  // selection
+  if (selStart !== null) {
+    const x1 = selStart / info.frames * w, x2 = selEnd / info.frames * w;
+    ctx.fillStyle = 'rgba(255,200,80,.18)';
+    ctx.fillRect(x1, 0, x2 - x1, h);
+  }
+  // envelope
+  ctx.fillStyle = 'rgba(105,170,255,.55)';
+  ctx.strokeStyle = 'rgb(105,170,255)';
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = i / n * w;
+    const y1 = mid - peaks.maxs[i] * mid * 0.95;
+    const y2 = mid - peaks.mins[i] * mid * 0.95;
+    ctx.rect(x, y1, Math.max(w / n, 1), Math.max(y2 - y1, 1));
+  }
+  ctx.fill();
+  // centre line
+  ctx.strokeStyle = 'rgba(255,255,255,.12)';
+  ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
+  // split markers
+  ctx.strokeStyle = 'rgba(255,110,110,.9)'; ctx.setLineDash([4, 4]);
+  for (const m of info.markers) {
+    const x = m / info.frames * w;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // cursor
+  const cx = cursor / info.frames * w;
+  ctx.strokeStyle = 'rgba(240,240,240,.9)';
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
+  // playhead
+  if (playFrame !== undefined) {
+    const px = playFrame / info.frames * w;
+    ctx.strokeStyle = 'rgb(90,255,140)';
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+  }
+}
+// mouse: click = cursor, drag = selection
+let dragging = false, dragFrom = 0;
+const frameAt = ev => {
+  const r = $('wave').getBoundingClientRect();
+  return Math.round(Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1)
+                    * info.frames);
+};
+$('wave').addEventListener('mousedown', ev => {
+  if (!info) return;
+  dragging = true; dragFrom = frameAt(ev);
+  cursor = dragFrom; selStart = selEnd = null; draw(); setStatus();
+});
+window.addEventListener('mousemove', ev => {
+  if (!dragging) return;
+  const f = frameAt(ev);
+  if (Math.abs(f - dragFrom) > info.frames / 500) {
+    selStart = Math.min(dragFrom, f); selEnd = Math.max(dragFrom, f);
+    draw(); setStatus();
+  }
+});
+window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('resize', () => draw());
+
+const selOrAll = () => selStart !== null
+  ? { start: selStart, end: selEnd } : { start: 0, end: info.frames };
+
+// ---- upload ---------------------------------------------------------
+$('drop').addEventListener('click', () => $('file').click());
+$('drop').addEventListener('dragover', ev => { ev.preventDefault(); $('drop').classList.add('hover'); });
+$('drop').addEventListener('dragleave', () => $('drop').classList.remove('hover'));
+$('drop').addEventListener('drop', ev => {
+  ev.preventDefault(); $('drop').classList.remove('hover');
+  if (ev.dataTransfer.files[0]) uploadFile(ev.dataTransfer.files[0]);
+});
+$('file').addEventListener('change', () => {
+  if ($('file').files[0]) uploadFile($('file').files[0]);
+});
+async function uploadFile(f) {
+  busy(true, 'Uploading & decoding…');
+  try {
+    const fd = new FormData(); fd.append('file', f);
+    info = await api('/api/upload', { method: 'POST', body: fd });
+    sid = info.session;
+    selStart = selEnd = null; cursor = 0;
+    $('drop').style.display = 'none';
+    $('editor').style.display = 'block';
+    await refresh();
+  } catch (e) { alert('Upload failed: ' + e.message); }
+  busy(false);
+}
+
+// ---- transport ------------------------------------------------------
+function stopPlay() {
+  if (audio) { audio.pause(); audio = null; }
+  draw();
+}
+$('play').addEventListener('click', () => {
+  if (!sid) return;
+  stopPlay();
+  const s = selStart !== null ? selStart : cursor;
+  const e = selStart !== null ? selEnd : info.frames;
+  playStartFrame = s;
+  audio = new Audio(`/api/${sid}/audio.wav?start=${s}&end=${e}&v=${Date.now()}`);
+  audio.play();
+  const tick = () => {
+    if (!audio || audio.paused) { draw(); return; }
+    draw(playStartFrame + audio.currentTime * info.samplerate);
+    requestAnimationFrame(tick);
+  };
+  audio.addEventListener('playing', tick);
+});
+$('stop').addEventListener('click', stopPlay);
+
+// ---- edits ----------------------------------------------------------
+async function doEdit(op, extra) {
+  if (!sid) return;
+  stopPlay();
+  try {
+    const body = Object.assign({ op, start: selStart ?? 0, end: selEnd ?? 0,
+                                 at: cursor }, extra);
+    await api(`/api/${sid}/edit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) });
+    if (['cut','delete','trim'].includes(op)) { selStart = selEnd = null; }
+    await refresh();
+  } catch (e) { alert(e.message); }
+}
+const needSel = op => () => selStart === null
+  ? alert('Drag on the waveform to make a selection first.') : doEdit(op);
+$('cut').addEventListener('click', needSel('cut'));
+$('copy').addEventListener('click', needSel('copy'));
+$('del').addEventListener('click', needSel('delete'));
+$('trim').addEventListener('click', needSel('trim'));
+$('silence').addEventListener('click', needSel('silence'));
+$('paste').addEventListener('click', () => doEdit('paste'));
+$('split').addEventListener('click', () => doEdit('split'));
+$('clearsplits').addEventListener('click', () => doEdit('clear_splits'));
+$('undo').addEventListener('click', async () => {
+  stopPlay(); await api(`/api/${sid}/undo`, { method: 'POST' }); refresh(); });
+$('redo').addEventListener('click', async () => {
+  stopPlay(); await api(`/api/${sid}/redo`, { method: 'POST' }); refresh(); });
+
+// ---- effects --------------------------------------------------------
+async function doEffect(name, params, label) {
+  if (!sid) return;
+  stopPlay(); busy(true, label || 'Processing…');
+  try {
+    const { start, end } = selOrAll();
+    await api(`/api/${sid}/effect`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, params, start, end }) });
+    await refresh(); setStatus(`${label || name}: done ✓`);
+  } catch (e) { alert(e.message); }
+  busy(false);
+}
+$('profile').addEventListener('click', async () => {
+  if (selStart === null) { alert('Select a stretch of pure tape hiss first.'); return; }
+  try {
+    await api(`/api/${sid}/profile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start: selStart, end: selEnd }) });
+    await refresh(); setStatus('noise profile captured ✓');
+  } catch (e) { alert(e.message); }
+});
+$('nr').addEventListener('click', () => doEffect('noise_reduction', {
+  reduction_db: val('nr_red'), sensitivity_db: val('nr_sens'),
+  release_ms: val('nr_rel') }, 'Reducing tape hiss…'));
+$('hum').addEventListener('click', () => doEffect('hum', {
+  fundamental: val('hum_f'), harmonics: val('hum_h'), q: val('hum_q') },
+  'Removing hum…'));
+$('declick').addEventListener('click', () => doEffect('declick', {
+  threshold: val('dc_th') }, 'Repairing clicks…'));
+$('declip').addEventListener('click', () => doEffect('declip', {
+  threshold: val('cl_th') }, 'Rebuilding clipped peaks…'));
+$('eq').addEventListener('click', () => doEffect('eq', {
+  rumble_cutoff: val('eq_hp'), shelf_gain_db: val('eq_sh'),
+  presence_gain_db: val('eq_pr') }, 'Applying tone EQ…'));
+$('normalize').addEventListener('click', () => doEffect('normalize', {
+  target_db: val('lv_norm') }, 'Normalizing…'));
+$('gain').addEventListener('click', () => doEffect('gain', {
+  gain_db: val('lv_gain') }, 'Amplifying…'));
+$('fade').addEventListener('click', () => doEffect('fade', {
+  fade_in_s: val('lv_fade'), fade_out_s: val('lv_fade') }, 'Fading…'));
+$('remaster').addEventListener('click', () => doEffect('remaster', {
+  nr_reduction_db: val('rm_nr'), hum_fundamental: val('rm_hum'),
+  shelf_gain_db: val('rm_shelf') },
+  'Remastering — declick → declip → hum → hiss → EQ → normalize…'));
+
+// ---- export ---------------------------------------------------------
+function download(url) { const a = document.createElement('a'); a.href = url; a.click(); }
+const expUrl = fmt => {
+  const { start, end } = selOrAll();
+  return `/api/${sid}/export?fmt=${fmt}&start=${start}&end=${end}`;
+};
+$('exp16').addEventListener('click', () => download(expUrl('wav16')));
+$('exp24').addEventListener('click', () => download(expUrl('wav24')));
+$('expflac').addEventListener('click', () => download(expUrl('flac')));
+$('expseg').addEventListener('click', () =>
+  info.markers.length ? download(`/api/${sid}/export_segments`)
+    : alert('No split markers set. Use “Split at cursor” first.'));
+</script>
+</body>
+</html>

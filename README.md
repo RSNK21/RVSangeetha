@@ -73,8 +73,40 @@ To build a standalone `RVSangeetha.exe`:
 build_windows.bat        :: output in dist\RVSangeetha\
 ```
 
+A pre-built `RVSangeetha-windows.zip` is also produced by the
+[Build Windows exe](../../actions/workflows/build-windows.yml) GitHub
+Actions workflow on every push (download from the run's **Artifacts**) and
+attached to releases on `v*` tags.
+
 (The code is pure Python/Qt and also runs on Linux/macOS:
 `python -m rvsangeetha`.)
+
+## Web app (any OS, any browser)
+
+The same DSP engine behind a FastAPI server with a browser UI — waveform
+with drag-selection, all restoration effects with manual sliders,
+noise-profile capture, cut/trim/silence/split with undo, playback, and
+WAV/FLAC/segment-zip export.
+
+```bash
+pip install -r requirements.txt
+uvicorn rvsangeetha.web.server:app --host 0.0.0.0 --port 8080
+# open http://localhost:8080
+```
+
+Or with Docker (no Python needed):
+
+```bash
+docker build -t rvsangeetha .
+docker run -p 8080:8080 rvsangeetha
+```
+
+![web app](docs/screenshot_web.png)
+
+Sessions are held in memory (up to 16, 4 h TTL); nothing is stored
+permanently. Audio is processed server-side, so a modest machine serves
+fine for personal use.
+
 
 ## Suggested workflow
 
