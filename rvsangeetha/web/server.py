@@ -24,10 +24,9 @@ from pydantic import BaseModel
 
 from .. import APP_NAME, __version__
 from ..audio_document import AudioDocument
-from ..dsp import declick, dynamics, filters
-from ..dsp.noise_reduction import (NoiseProfile, auto_noise_segment,
-                                   estimate_noise_profile, reduce_noise)
-from ..dsp.remaster import RemasterSettings, remaster, veena_preset
+from ..dsp import dynamics
+from ..dsp.dispatch import apply_effect
+from ..dsp.noise_reduction import NoiseProfile, estimate_noise_profile
 
 MAX_SESSIONS = 16
 SESSION_TTL_S = 4 * 3600
@@ -102,6 +101,11 @@ async def upload(file: UploadFile):
     with _sessions_lock:
         _sessions[sid] = s
     return _info(sid, s)
+
+
+@app.get("/api/health")
+def health():
+    return {"app": APP_NAME, "version": __version__}
 
 
 @app.get("/api/{sid}/info")
@@ -265,58 +269,11 @@ def _apply_effect(s: Session, req: EffectReq) -> None:
     start = max(0, min(req.start, d.frames))
     end = d.frames if req.end is None else max(start, min(req.end, d.frames))
     seg = d.samples[start:end].copy()
-    p = req.params
 
-    if req.name == "noise_reduction":
-        profile = s.profile
-        if profile is None:
-            a, b = auto_noise_segment(seg, sr)
-            profile = estimate_noise_profile(seg[a:b], sr)
-        out = reduce_noise(
-            seg, sr, profile,
-            reduction_db=float(p.get("reduction_db", 12)),
-            sensitivity_db=float(p.get("sensitivity_db", 6)),
-            freq_smooth_bands=int(p.get("freq_smooth", 3)),
-            attack_ms=float(p.get("attack_ms", 20)),
-            release_ms=float(p.get("release_ms", 150)))
-    elif req.name == "hum":
-        out = filters.remove_hum(seg, sr,
-                                 float(p.get("fundamental", 50)),
-                                 int(p.get("harmonics", 8)),
-                                 float(p.get("q", 35)))
-    elif req.name == "declick":
-        out = declick.remove_clicks(seg, sr,
-                                    float(p.get("threshold", 14)),
-                                    float(p.get("max_click_ms", 2)))
-    elif req.name == "declip":
-        out = declick.declip(seg, float(p.get("threshold", 0.95)))
-    elif req.name == "eq":
-        out = filters.rumble_filter(seg, sr,
-                                    float(p.get("rumble_cutoff", 30)))
-        out = filters.high_shelf(out, sr, float(p.get("shelf_freq", 7500)),
-                                 float(p.get("shelf_gain_db", 2.5)))
-        out = filters.peaking_eq(out, sr,
-                                 float(p.get("presence_freq", 3200)),
-                                 float(p.get("presence_gain_db", 1.5)),
-                                 float(p.get("presence_q", 1.2)))
-    elif req.name == "normalize":
-        out = dynamics.normalize(seg, float(p.get("target_db", -1)))
-    elif req.name == "gain":
-        out = dynamics.apply_gain(seg, float(p.get("gain_db", 0)))
-    elif req.name == "fade":
-        out = dynamics.fade(seg, sr, float(p.get("fade_in_s", 0)),
-                            float(p.get("fade_out_s", 0)))
-    elif req.name == "remaster":
-        settings = veena_preset()
-        for k, v in p.items():
-            if hasattr(settings, k):
-                cur = getattr(settings, k)
-                setattr(settings, k,
-                        type(cur)(v) if not isinstance(cur, bool)
-                        else bool(v))
-        out = remaster(seg, sr, settings, s.profile)
-    else:
-        raise HTTPException(400, f"Unknown effect {req.name!r}")
+    try:
+        out = apply_effect(req.name, req.params, seg, sr, s.profile)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     label = req.name.replace("_", " ").title()
     if out.shape[0] == end - start and (start, end) != (0, d.frames):

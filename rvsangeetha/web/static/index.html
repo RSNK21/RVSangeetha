@@ -60,7 +60,7 @@ a { color:var(--acc); }
 </header>
 <main>
   <div id="drop">Drop a cassette transfer here, or click to choose a file
-    <br><small>WAV · FLAC · OGG · MP3 — processed on the server, nothing stored permanently</small>
+    <br><small id="drophint">WAV · FLAC · OGG · MP3</small>
     <input id="file" type="file" accept="audio/*,.wav,.flac,.ogg,.mp3,.aiff" hidden>
   </div>
 
@@ -197,6 +197,7 @@ a { color:var(--acc); }
 recordings. Selections apply effects locally; no selection = whole
 recording.</footer>
 
+<script src="engine.js"></script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -214,8 +215,8 @@ document.querySelectorAll('input[type=range]').forEach(r => {
 });
 const val = id => parseFloat($(id).value);
 
-// ---- api ------------------------------------------------------------
-async function api(path, opts) {
+// ---- engine (server backend, or in-browser Pyodide) -----------------
+async function apiFetch(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) {
     let msg = res.statusText;
@@ -224,13 +225,48 @@ async function api(path, opts) {
   }
   return res.json();
 }
+const remoteEngine = {
+  local: false,
+  async upload(file, progress) {
+    progress('Uploading & decoding…');
+    const fd = new FormData(); fd.append('file', file);
+    return apiFetch('/api/upload', { method: 'POST', body: fd });
+  },
+  async call(path, body) {
+    return apiFetch(`/api/${sid}${path}`, body === undefined ? undefined : {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body) });
+  },
+  async audioUrl(s, e) {
+    return `/api/${sid}/audio.wav?start=${s}&end=${e}&v=${Date.now()}`;
+  },
+  async export(fmt, start, end) {
+    return { url: `/api/${sid}/export?fmt=${fmt}&start=${start}&end=${end}` };
+  },
+  async exportSegments() {
+    return { url: `/api/${sid}/export_segments` };
+  },
+};
+let engine = null;
+const enginePick = (async () => {
+  try {
+    const r = await fetch('api/health', { cache: 'no-store' });
+    if (r.ok) { engine = remoteEngine; }
+  } catch {}
+  if (!engine) engine = makeLocalEngine();
+  $('drophint').textContent = engine.local
+    ? 'WAV · FLAC · OGG · MP3 — runs entirely in your browser; nothing is uploaded anywhere'
+    : 'WAV · FLAC · OGG · MP3 — processed on the server, nothing stored permanently';
+  if (engine.local) $('expflac').style.display = 'none';
+})();
+const api = (path, body) => engine.call(path, body);
 function busy(on, text) {
   $('busytext').textContent = text || 'Processing…';
   $('busy').style.display = on ? 'flex' : 'none';
 }
 async function refresh() {
-  info = await api(`/api/${sid}/info`);
-  peaks = await api(`/api/${sid}/peaks?cols=${Math.min(4000, $('wave').clientWidth * 2)}`);
+  info = await api('/info');
+  peaks = await api(`/peaks?cols=${Math.min(4000, $('wave').clientWidth * 2)}`);
   draw(); setStatus();
   $('profbadge').textContent = info.has_profile ? '✓ profile captured' : '';
   $('undo').disabled = !info.can_undo;
@@ -335,10 +371,10 @@ $('file').addEventListener('change', () => {
   if ($('file').files[0]) uploadFile($('file').files[0]);
 });
 async function uploadFile(f) {
-  busy(true, 'Uploading & decoding…');
+  busy(true, 'Loading…');
   try {
-    const fd = new FormData(); fd.append('file', f);
-    info = await api('/api/upload', { method: 'POST', body: fd });
+    await enginePick;
+    info = await engine.upload(f, t => busy(true, t));
     sid = info.session;
     selStart = selEnd = null; cursor = 0;
     $('drop').style.display = 'none';
@@ -353,13 +389,13 @@ function stopPlay() {
   if (audio) { audio.pause(); audio = null; }
   draw();
 }
-$('play').addEventListener('click', () => {
+$('play').addEventListener('click', async () => {
   if (!sid) return;
   stopPlay();
   const s = selStart !== null ? selStart : cursor;
   const e = selStart !== null ? selEnd : info.frames;
   playStartFrame = s;
-  audio = new Audio(`/api/${sid}/audio.wav?start=${s}&end=${e}&v=${Date.now()}`);
+  audio = new Audio(await engine.audioUrl(s, e));
   audio.play();
   const tick = () => {
     if (!audio || audio.paused) { draw(); return; }
@@ -377,9 +413,7 @@ async function doEdit(op, extra) {
   try {
     const body = Object.assign({ op, start: selStart ?? 0, end: selEnd ?? 0,
                                  at: cursor }, extra);
-    await api(`/api/${sid}/edit`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body) });
+    await api('/edit', body);
     if (['cut','delete','trim'].includes(op)) { selStart = selEnd = null; }
     await refresh();
   } catch (e) { alert(e.message); }
@@ -395,9 +429,9 @@ $('paste').addEventListener('click', () => doEdit('paste'));
 $('split').addEventListener('click', () => doEdit('split'));
 $('clearsplits').addEventListener('click', () => doEdit('clear_splits'));
 $('undo').addEventListener('click', async () => {
-  stopPlay(); await api(`/api/${sid}/undo`, { method: 'POST' }); refresh(); });
+  stopPlay(); await api('/undo', {}); refresh(); });
 $('redo').addEventListener('click', async () => {
-  stopPlay(); await api(`/api/${sid}/redo`, { method: 'POST' }); refresh(); });
+  stopPlay(); await api('/redo', {}); refresh(); });
 
 // ---- effects --------------------------------------------------------
 async function doEffect(name, params, label) {
@@ -405,9 +439,7 @@ async function doEffect(name, params, label) {
   stopPlay(); busy(true, label || 'Processing…');
   try {
     const { start, end } = selOrAll();
-    await api(`/api/${sid}/effect`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, params, start, end }) });
+    await api('/effect', { name, params, start, end });
     await refresh(); setStatus(`${label || name}: done ✓`);
   } catch (e) { alert(e.message); }
   busy(false);
@@ -415,9 +447,7 @@ async function doEffect(name, params, label) {
 $('profile').addEventListener('click', async () => {
   if (selStart === null) { alert('Select a stretch of pure tape hiss first.'); return; }
   try {
-    await api(`/api/${sid}/profile`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start: selStart, end: selEnd }) });
+    await api('/profile', { start: selStart, end: selEnd });
     await refresh(); setStatus('noise profile captured ✓');
   } catch (e) { alert(e.message); }
 });
@@ -446,17 +476,27 @@ $('remaster').addEventListener('click', () => doEffect('remaster', {
   'Remastering — declick → declip → hum → hiss → EQ → normalize…'));
 
 // ---- export ---------------------------------------------------------
-function download(url) { const a = document.createElement('a'); a.href = url; a.click(); }
-const expUrl = fmt => {
+function download({ url, filename }) {
+  const a = document.createElement('a');
+  a.href = url; if (filename) a.download = filename;
+  a.click();
+}
+const stem = () => (info.name || 'rvsangeetha').replace(/\.[^.]+$/, '');
+async function doExport(fmt) {
   const { start, end } = selOrAll();
-  return `/api/${sid}/export?fmt=${fmt}&start=${start}&end=${end}`;
-};
-$('exp16').addEventListener('click', () => download(expUrl('wav16')));
-$('exp24').addEventListener('click', () => download(expUrl('wav24')));
-$('expflac').addEventListener('click', () => download(expUrl('flac')));
-$('expseg').addEventListener('click', () =>
-  info.markers.length ? download(`/api/${sid}/export_segments`)
-    : alert('No split markers set. Use “Split at cursor” first.'));
+  try { download(await engine.export(fmt, start, end, stem())); }
+  catch (e) { alert(e.message); }
+}
+$('exp16').addEventListener('click', () => doExport('wav16'));
+$('exp24').addEventListener('click', () => doExport('wav24'));
+$('expflac').addEventListener('click', () => doExport('flac'));
+$('expseg').addEventListener('click', async () => {
+  if (!info.markers.length) {
+    alert('No split markers set. Use “Split at cursor” first.'); return;
+  }
+  try { download(await engine.exportSegments(stem())); }
+  catch (e) { alert(e.message); }
+});
 </script>
 </body>
 </html>

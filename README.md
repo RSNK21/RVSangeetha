@@ -83,10 +83,14 @@ attached to releases on `v*` tags.
 
 ## Web app (any OS, any browser)
 
-The same DSP engine behind a FastAPI server with a browser UI — waveform
-with drag-selection, all restoration effects with manual sliders,
-noise-profile capture, cut/trim/silence/split with undo, playback, and
-WAV/FLAC/segment-zip export.
+**Easiest: just open <https://rsnk21.github.io/RVSangeetha/>** — the whole
+app runs inside your browser via Python-in-WebAssembly (Pyodide). Nothing
+to install, and your audio never leaves your machine. The first visit
+downloads the Python runtime (~15 MB, then cached). FLAC export is not
+available in this mode; use WAV 16/24.
+
+The same page can also be served by a small FastAPI backend, which does the
+processing server-side (faster on weak devices, adds FLAC export):
 
 ```bash
 pip install -r requirements.txt
@@ -104,8 +108,9 @@ docker run -p 8080:8080 rvsangeetha
 ![web app](docs/screenshot_web.png)
 
 Sessions are held in memory (up to 16, 4 h TTL); nothing is stored
-permanently. Audio is processed server-side, so a modest machine serves
-fine for personal use.
+permanently. The browser UI offers waveform drag-selection, all restoration
+effects with manual sliders, noise-profile capture,
+cut/trim/silence/split with undo, playback, and WAV/segment-zip export.
 
 
 ## Suggested workflow

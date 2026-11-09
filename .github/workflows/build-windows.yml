@@ -30,10 +30,11 @@ jobs:
       - name: Build RVSangeetha.exe
         run: |
           pyinstaller --noconfirm --windowed --name RVSangeetha `
+            --paths . `
             --collect-all pyqtgraph `
             --collect-binaries soundfile `
             --collect-binaries sounddevice `
-            rvsangeetha/__main__.py
+            launcher.py
 
       - name: Zip distribution
         run: Compress-Archive -Path dist/RVSangeetha -DestinationPath RVSangeetha-windows.zip
